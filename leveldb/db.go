@@ -760,7 +760,9 @@ func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byt
 	return
 }
 
+// 获取一个 key 的 value 数据
 func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.ReadOptions) (value []byte, err error) {
+	// 构造一个内部 key
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
 	if auxm != nil {
@@ -777,6 +779,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 		defer m.decref()
 
 		if ok, mv, me := memGet(m.DB, ikey, db.s.icmp); ok {
+			// 如果内存 DB 获取到了，那就直接返回了
 			return append([]byte{}, mv...), me
 		}
 	}
@@ -785,6 +788,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 	value, cSched, err := v.get(auxt, ikey, ro, false)
 	v.release()
 	if cSched {
+		// 触发 sst 表的 compact
 		// Trigger table compaction.
 		db.compTrigger(db.tcompCmdC)
 	}

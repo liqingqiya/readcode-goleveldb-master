@@ -31,8 +31,10 @@ func (db *DB) acquireSnapshot() *snapshotElement {
 
 	seq := db.getSeq()
 
+	// 看看 snap 列表里有没有？有的话就取出来，然后计数加 1
 	if e := db.snapsList.Back(); e != nil {
 		se := e.Value.(*snapshotElement)
+		// 要是相同的 seq 号才会引用
 		if se.seq == seq {
 			se.ref++
 			return se
@@ -40,6 +42,7 @@ func (db *DB) acquireSnapshot() *snapshotElement {
 			panic("leveldb: sequence number is not increasing")
 		}
 	}
+	// 如果没有，那就新建一个 snapshot 的对象，挂到列表中
 	se := &snapshotElement{seq: seq, ref: 1}
 	se.e = db.snapsList.PushBack(se)
 	return se
@@ -50,6 +53,7 @@ func (db *DB) releaseSnapshot(se *snapshotElement) {
 	db.snapsMu.Lock()
 	defer db.snapsMu.Unlock()
 
+	// 减引用技术，如果减到 0 了，那么就从列表中销毁，释放掉
 	se.ref--
 	if se.ref == 0 {
 		db.snapsList.Remove(se.e)

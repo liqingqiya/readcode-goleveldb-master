@@ -50,6 +50,7 @@ func (m *memDB) decref() {
 
 // Get latest sequence number.
 func (db *DB) getSeq() uint64 {
+	// 获取到最新的序列号
 	return atomic.LoadUint64(&db.seq)
 }
 
@@ -166,6 +167,7 @@ func (db *DB) getMems() (e, f *memDB) {
 	if db.frozenMem != nil {
 		db.frozenMem.incref()
 	}
+	// 返回内存 DB 结构，一个是 memDB，一个是只读的 memDB
 	return db.mem, db.frozenMem
 }
 

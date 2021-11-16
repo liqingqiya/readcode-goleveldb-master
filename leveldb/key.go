@@ -72,6 +72,7 @@ func init() {
 
 type internalKey []byte
 
+// 构造内部 key
 func makeInternalKey(dst, ukey []byte, seq uint64, kt keyType) internalKey {
 	if seq > keyMaxSeq {
 		panic("leveldb: invalid sequence number")
@@ -80,7 +81,9 @@ func makeInternalKey(dst, ukey []byte, seq uint64, kt keyType) internalKey {
 	}
 
 	dst = ensureBuffer(dst, len(ukey)+8)
+	// 前面一段赋值 user key
 	copy(dst, ukey)
+	// 后面 8 字节为 seq + keyType
 	binary.LittleEndian.PutUint64(dst[len(ukey):], (seq<<8)|uint64(kt))
 	return internalKey(dst)
 }
