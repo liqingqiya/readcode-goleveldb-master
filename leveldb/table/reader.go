@@ -55,15 +55,17 @@ func max(x, y int) int {
 
 // 通用 block 的抽象
 type block struct {
-	bpool          *util.BufferPool
-	bh             blockHandle
-	data           []byte
-	restartsLen    int
-	restartsOffset int
+	bpool          *util.BufferPool //
+	bh             blockHandle      // block 位置
+	data           []byte           // 内存数据
+	restartsLen    int              // 有多少个 restart 点
+	restartsOffset int              // restart 数组从哪个偏移开始
 }
 
 func (b *block) seek(cmp comparer.Comparer, rstart, rlimit int, key []byte) (index, offset int, err error) {
+	// 在这个 restart point 数组中，查找
 	index = sort.Search(b.restartsLen-rstart-(b.restartsLen-rlimit), func(i int) bool {
+		// i 这个位置的 restart point 的 offset 是啥？
 		offset := int(binary.LittleEndian.Uint32(b.data[b.restartsOffset+4*(rstart+i):]))
 		offset++                                    // shared always zero, since this is a restart point
 		v1, n1 := binary.Uvarint(b.data[offset:])   // key length
@@ -79,16 +81,20 @@ func (b *block) seek(cmp comparer.Comparer, rstart, rlimit int, key []byte) (ind
 	return
 }
 
+//
 func (b *block) restartIndex(rstart, rlimit, offset int) int {
 	return sort.Search(b.restartsLen-rstart-(b.restartsLen-rlimit), func(i int) bool {
+		// 从 restart point 数组中找到最小的那个，大于 offset 的
 		return int(binary.LittleEndian.Uint32(b.data[b.restartsOffset+4*(rstart+i):])) > offset
 	}) + rstart - 1
 }
 
+// 第 index restart 点的偏移
 func (b *block) restartOffset(index int) int {
 	return int(binary.LittleEndian.Uint32(b.data[b.restartsOffset+4*index:]))
 }
 
+// 获取到 offset 位置的 entry 的 kv 对
 func (b *block) entry(offset int) (key, value []byte, nShared, n int, err error) {
 	if offset >= b.restartsOffset {
 		if offset != b.restartsOffset {
@@ -128,12 +134,12 @@ const (
 )
 
 type blockIter struct {
-	tr            *Reader
-	block         *block
-	blockReleaser util.Releaser
-	releaser      util.Releaser
-	key, value    []byte
-	offset        int
+	tr            *Reader       // sst 读句柄
+	block         *block        // 对应的 block
+	blockReleaser util.Releaser //
+	releaser      util.Releaser //
+	key, value    []byte        //
+	offset        int           // 当前 iter 偏移
 	// Previous offset, only filled by Next.
 	prevOffset   int
 	prevNode     []int
@@ -142,16 +148,17 @@ type blockIter struct {
 	// Iterator direction.
 	dir dir
 	// Restart index slice range.
-	riStart int
-	riLimit int
+	riStart int // 标明数组的起始位置
+	riLimit int // 标明数组的长度
 	// Offset slice range.
-	offsetStart     int
-	offsetRealStart int
-	offsetLimit     int
+	offsetStart     int // entry 的 offset 开始位置
+	offsetRealStart int // offset 真实的起始位置
+	offsetLimit     int // entry 的 end 的位置
 	// Error.
 	err error
 }
 
+// block 迭代器遇到错误的时候会把 err 存起来，也会重置一些字段
 func (i *blockIter) sErr(err error) {
 	i.err = err
 	i.key = nil
@@ -160,6 +167,7 @@ func (i *blockIter) sErr(err error) {
 	i.prevKeys = nil
 }
 
+// 重置
 func (i *blockIter) reset() {
 	if i.dir == dirBackward {
 		i.prevNode = i.prevNode[:0]
@@ -172,6 +180,7 @@ func (i *blockIter) reset() {
 	i.value = nil
 }
 
+// 看是否是第一个？
 func (i *blockIter) isFirst() bool {
 	switch i.dir {
 	case dirForward:
@@ -182,6 +191,7 @@ func (i *blockIter) isFirst() bool {
 	return false
 }
 
+// 是否是最后一个？
 func (i *blockIter) isLast() bool {
 	switch i.dir {
 	case dirForward, dirBackward:
@@ -224,12 +234,14 @@ func (i *blockIter) Last() bool {
 
 func (i *blockIter) Seek(key []byte) bool {
 	if i.err != nil {
+		// 如果有 pendin 的 err，则直接返回 false
 		return false
 	} else if i.dir == dirReleased {
 		i.err = ErrIterReleased
 		return false
 	}
 
+	// 找到 key 所在的位置？
 	ri, offset, err := i.block.seek(i.tr.cmp, i.riStart, i.riLimit, key)
 	if err != nil {
 		i.sErr(err)
@@ -241,6 +253,7 @@ func (i *blockIter) Seek(key []byte) bool {
 		i.dir = dirForward
 	}
 	for i.Next() {
+		// 定位匹配位置
 		if i.tr.cmp.Compare(i.key, key) >= 0 {
 			return true
 		}
@@ -248,6 +261,7 @@ func (i *blockIter) Seek(key []byte) bool {
 	return false
 }
 
+// 迭代器步进
 func (i *blockIter) Next() bool {
 	if i.dir == dirEOI || i.err != nil {
 		return false
@@ -284,6 +298,7 @@ func (i *blockIter) Next() bool {
 		}
 		return false
 	}
+	// 获取一个 entry
 	key, value, nShared, n, err := i.block.entry(i.offset)
 	if err != nil {
 		i.sErr(i.tr.fixErrCorruptedBH(i.block.bh, err))
@@ -747,7 +762,9 @@ func (r *Reader) newBlockIter(b *block, bReleaser util.Releaser, slice *util.Ran
 	if slice != nil {
 		if slice.Start != nil {
 			if bi.Seek(slice.Start) {
+				// 第几个 restart ？
 				bi.riStart = b.restartIndex(bi.restartIndex, b.restartsLen, bi.prevOffset)
+				// 这个位置的偏移
 				bi.offsetStart = b.restartOffset(bi.riStart)
 				bi.offsetRealStart = bi.prevOffset
 			} else {
