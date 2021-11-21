@@ -10,10 +10,12 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// 计算一个 key 的 hash 值
 func bloomHash(key []byte) uint32 {
 	return util.Hash(key, 0xbc9f1d34)
 }
 
+// filter 管理器
 type bloomFilter int
 
 // Name: The bloom filter serializes its parameters and is backward compatible
@@ -23,6 +25,7 @@ func (bloomFilter) Name() string {
 	return "leveldb.BuiltinBloomFilter"
 }
 
+// 在 filter 里查找 key 是不是不存在？
 func (f bloomFilter) Contains(filter, key []byte) bool {
 	nBytes := len(filter) - 1
 	if nBytes < 1 {
@@ -39,7 +42,9 @@ func (f bloomFilter) Contains(filter, key []byte) bool {
 		return true
 	}
 
+	// 计算一个 hash 值
 	kh := bloomHash(key)
+	// 查找这个 hash 值是否存在？
 	delta := (kh >> 17) | (kh << 15) // Rotate right 17 bits
 	for j := uint8(0); j < k; j++ {
 		bitpos := kh % nBits
@@ -51,6 +56,7 @@ func (f bloomFilter) Contains(filter, key []byte) bool {
 	return true
 }
 
+// 生成一个新的 filter
 func (f bloomFilter) NewGenerator() FilterGenerator {
 	// Round down to reduce probing cost a little bit.
 	k := uint8(f * 69 / 100) // 0.69 =~ ln(2)
@@ -65,19 +71,22 @@ func (f bloomFilter) NewGenerator() FilterGenerator {
 	}
 }
 
+// 管理 key filter，生成 buffer 啥的都在这里
 type bloomFilterGenerator struct {
-	n int
-	k uint8
+	n int   // 根据这个可以计算出 filter 所需要内存的大小
+	k uint8 // hash 的次数
 
-	keyHashes []uint32
+	keyHashes []uint32 // hash 值的集合
 }
 
+// 把一个 key 的 hash 值加入到队列中
 func (g *bloomFilterGenerator) Add(key []byte) {
 	// Use double-hashing to generate a sequence of hash values.
 	// See analysis in [Kirsch,Mitzenmacher 2006].
 	g.keyHashes = append(g.keyHashes, bloomHash(key))
 }
 
+//
 func (g *bloomFilterGenerator) Generate(b Buffer) {
 	// Compute bloom filter size (in both bits and bytes)
 	nBits := uint32(len(g.keyHashes) * g.n)
@@ -89,10 +98,14 @@ func (g *bloomFilterGenerator) Generate(b Buffer) {
 	nBytes := (nBits + 7) / 8
 	nBits = nBytes * 8
 
+	// 分配字节数组内存
 	dest := b.Alloc(int(nBytes) + 1)
+	// 把 k 存到数组里
 	dest[nBytes] = g.k
+	// 把 keyHashes 里面的值 hash 到 filter 里面去
 	for _, kh := range g.keyHashes {
 		delta := (kh >> 17) | (kh << 15) // Rotate right 17 bits
+		// 做 k 次 hash
 		for j := uint8(0); j < g.k; j++ {
 			bitpos := kh % nBits
 			dest[bitpos/8] |= (1 << (bitpos % 8))
@@ -100,6 +113,7 @@ func (g *bloomFilterGenerator) Generate(b Buffer) {
 		}
 	}
 
+	// 清空 keyHashes 数组
 	g.keyHashes = g.keyHashes[:0]
 }
 

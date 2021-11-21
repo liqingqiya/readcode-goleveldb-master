@@ -53,6 +53,7 @@ func max(x, y int) int {
 	return y
 }
 
+// 通用 block 的抽象
 type block struct {
 	bpool          *util.BufferPool
 	bh             blockHandle
@@ -454,13 +455,14 @@ func (i *blockIter) Error() error {
 }
 
 type filterBlock struct {
-	bpool      *util.BufferPool
-	data       []byte
+	bpool      *util.BufferPool // 池化
+	data       []byte           // filter 数据，字节数组
 	oOffset    int
 	baseLg     uint
 	filtersNum int
 }
 
+// 查找 key 是否“不存在”
 func (b *filterBlock) contains(filter filter.Filter, offset uint64, key []byte) bool {
 	i := int(offset >> b.baseLg)
 	if i < b.filtersNum {
@@ -559,12 +561,16 @@ func (r *Reader) fixErrCorruptedBH(bh blockHandle, err error) error {
 	return err
 }
 
+// 读出一个 block 结构
 func (r *Reader) readRawBlock(bh blockHandle, verifyChecksum bool) ([]byte, error) {
+	// 分配一个能装这个 block 的内存块
 	data := r.bpool.Get(int(bh.length + blockTrailerLen))
+	// 把数据读到 data 中
 	if _, err := r.reader.ReadAt(data, int64(bh.offset)); err != nil && err != io.EOF {
 		return nil, err
 	}
 
+	// 是否做 crc 校验？
 	if verifyChecksum {
 		n := bh.length + 1
 		checksum0 := binary.LittleEndian.Uint32(data[n:])
@@ -575,6 +581,7 @@ func (r *Reader) readRawBlock(bh blockHandle, verifyChecksum bool) ([]byte, erro
 		}
 	}
 
+	// 根据 block 的 type 来做处理，这里的 type 主要是否有压缩，压缩了就要解压嘛
 	switch data[bh.length] {
 	case blockTypeNoCompression:
 		data = data[:bh.length]
@@ -663,6 +670,7 @@ func (r *Reader) readFilterBlock(bh blockHandle) (*filterBlock, error) {
 	if oOffset > m {
 		return nil, r.newErrCorruptedBH(bh, "invalid data-offsets offset")
 	}
+	// 构建一个 filter block
 	b := &filterBlock{
 		bpool:      r.bpool,
 		data:       data,
@@ -714,6 +722,7 @@ func (r *Reader) getIndexBlock(fillCache bool) (b *block, rel util.Releaser, err
 	return r.indexBlock, util.NoopReleaser{}, nil
 }
 
+// 获取一个 filter block
 func (r *Reader) getFilterBlock(fillCache bool) (*filterBlock, util.Releaser, error) {
 	if r.filterBlock == nil {
 		return r.readFilterBlockCached(r.filterBH, fillCache)
@@ -850,8 +859,10 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 
 	// The filter should only used for exact match.
 	if filtered && r.filter != nil {
+		// filter block 就是对读的优化嘛，减少一些无谓的 io 穿透到磁盘
 		filterBlock, frel, ferr := r.getFilterBlock(true)
 		if ferr == nil {
+			// 查找 filter 里是否有 key，这里其实就是一个 bloom filter 的实现
 			if !filterBlock.contains(r.filter, dataBH.offset, key) {
 				frel.Release()
 				return nil, nil, ErrNotFound
@@ -1018,6 +1029,7 @@ func (r *Reader) Release() {
 	r.err = ErrReaderReleased
 }
 
+// 创建一个 table 的 reader
 // NewReader creates a new initialized table reader for the file.
 // The fi, cache and bpool is optional and can be nil.
 //
@@ -1042,17 +1054,21 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		return r, nil
 	}
 
+	// 算出 footer 在文件的偏移的位置
 	footerPos := size - footerLen
 	var footer [footerLen]byte
+	// 把这个 footer 读出来，里面可是有 metaindex，index 的信息
 	if _, err := r.reader.ReadAt(footer[:], footerPos); err != nil && err != io.EOF {
 		return nil, err
 	}
+	// footer 魔数校验
 	if string(footer[footerLen-len(magic):footerLen]) != magic {
 		r.err = r.newErrCorrupted(footerPos, footerLen, "table-footer", "bad magic number")
 		return r, nil
 	}
 
 	var n int
+	// 把 meta 的 block handle 解析出来
 	// Decode the metaindex block handle.
 	r.metaBH, n = decodeBlockHandle(footer[:])
 	if n == 0 {
@@ -1060,6 +1076,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		return r, nil
 	}
 
+	// 把 index 的 block handle 解析出来
 	// Decode the index block handle.
 	r.indexBH, n = decodeBlockHandle(footer[n:])
 	if n == 0 {
@@ -1067,6 +1084,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		return r, nil
 	}
 
+	// 根据 block handle 定位，把 meta 的 block 读出来
 	// Read metaindex block.
 	metaBlock, err := r.readBlock(r.metaBH, true)
 	if err != nil {
@@ -1077,11 +1095,13 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		return nil, err
 	}
 
+	// 数据 block 的结束位置就是 meta block 开始的位置
 	// Set data end.
 	r.dataEnd = int64(r.metaBH.offset)
 
 	// Read metaindex.
 	metaIter := r.newBlockIter(metaBlock, nil, nil, true)
+	// 迭代一个个 meta 对象
 	for metaIter.Next() {
 		key := string(metaIter.Key())
 		if !strings.HasPrefix(key, "filter.") {
@@ -1089,6 +1109,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 		}
 		fn := key[7:]
 		if f0 := o.GetFilter(); f0 != nil && f0.Name() == fn {
+			// 设置 filter 句柄
 			r.filter = f0
 		} else {
 			for _, f0 := range o.GetAltFilters() {
@@ -1123,6 +1144,7 @@ func NewReader(f io.ReaderAt, size int64, fd storage.FileDesc, cache *cache.Name
 			return nil, err
 		}
 		if r.filter != nil {
+			// 如果存在 filter block 的话，那么就读出来
 			r.filterBlock, err = r.readFilterBlock(r.filterBH)
 			if err != nil {
 				if !errors.IsCorrupted(err) {
