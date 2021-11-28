@@ -133,6 +133,7 @@ func (s *session) getCompactionRange(sourceLevel int, umin, umax []byte, noLimit
 	return newCompaction(s, v, sourceLevel, t0, typ)
 }
 
+// 创建一个 compaction 结构体
 func newCompaction(s *session, v *version, sourceLevel int, t0 tFiles, typ int) *compaction {
 	c := &compaction{
 		s:             s,
@@ -148,28 +149,29 @@ func newCompaction(s *session, v *version, sourceLevel int, t0 tFiles, typ int) 
 	return c
 }
 
+// 代表一个 compaction 状态
 // compaction represent a compaction state.
 type compaction struct {
-	s *session
-	v *version
+	s *session // 数据库的 session 句柄
+	v *version //
 
-	typ           int
-	sourceLevel   int
-	levels        [2]tFiles
-	maxGPOverlaps int64
+	typ           int       //
+	sourceLevel   int       //
+	levels        [2]tFiles //
+	maxGPOverlaps int64     //
 
-	gp                tFiles
-	gpi               int
-	seenKey           bool
-	gpOverlappedBytes int64
-	imin, imax        internalKey
-	tPtrs             []int
-	released          bool
+	gp                tFiles      //
+	gpi               int         //
+	seenKey           bool        //
+	gpOverlappedBytes int64       //
+	imin, imax        internalKey //
+	tPtrs             []int       //
+	released          bool        //
 
-	snapGPI               int
-	snapSeenKey           bool
-	snapGPOverlappedBytes int64
-	snapTPtrs             []int
+	snapGPI               int   //
+	snapSeenKey           bool  //
+	snapGPOverlappedBytes int64 //
+	snapTPtrs             []int //
 }
 
 func (c *compaction) save() {
@@ -289,6 +291,7 @@ func (c *compaction) shouldStopBefore(ikey internalKey) bool {
 	return false
 }
 
+// 创建一个迭代器
 // Creates an iterator.
 func (c *compaction) newIterator() iterator.Iterator {
 	// Creates iterator slice.
@@ -309,6 +312,7 @@ func (c *compaction) newIterator() iterator.Iterator {
 		ro.Strict |= opt.StrictReader
 	}
 
+	// ?
 	for i, tables := range c.levels {
 		if len(tables) == 0 {
 			continue

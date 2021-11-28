@@ -22,6 +22,7 @@ type tSet struct {
 	table *tFile
 }
 
+// 这个是？
 type version struct {
 	id int64 // unique monotonous increasing version id
 	s  *session

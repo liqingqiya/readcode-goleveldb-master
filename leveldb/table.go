@@ -571,6 +571,7 @@ func (w *tWriter) close() {
 	}
 }
 
+// 结束文件的写入
 // Finalizes the table and returns table file.
 func (w *tWriter) finish() (f *tFile, err error) {
 	defer w.close()

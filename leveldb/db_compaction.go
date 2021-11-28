@@ -349,30 +349,32 @@ func (db *DB) memCompaction() {
 	db.compTrigger(db.tcompCmdC)
 }
 
+// 执行 table  compact 的
 type tableCompactionBuilder struct {
-	db           *DB
-	s            *session
-	c            *compaction
-	rec          *sessionRecord
-	stat0, stat1 *cStatStaging
+	db           *DB            // 数据库句柄
+	s            *session       //
+	c            *compaction    // 代表一个 compaction 状态
+	rec          *sessionRecord //
+	stat0, stat1 *cStatStaging  //
 
-	snapHasLastUkey bool
-	snapLastUkey    []byte
-	snapLastSeq     uint64
-	snapIter        int
-	snapKerrCnt     int
-	snapDropCnt     int
+	snapHasLastUkey bool   //
+	snapLastUkey    []byte //
+	snapLastSeq     uint64 //
+	snapIter        int    //
+	snapKerrCnt     int    //
+	snapDropCnt     int    //
 
-	kerrCnt int
-	dropCnt int
+	kerrCnt int //
+	dropCnt int //
 
-	minSeq    uint64
-	strict    bool
-	tableSize int
+	minSeq    uint64 //
+	strict    bool   //
+	tableSize int    // table 文件的大小
 
 	tw *tWriter
 }
 
+// 把 key/value 写入到对应的文件 writer 里去
 func (b *tableCompactionBuilder) appendKV(key, value []byte) error {
 	// Create new table if not already.
 	if b.tw == nil {
@@ -399,6 +401,7 @@ func (b *tableCompactionBuilder) appendKV(key, value []byte) error {
 	return b.tw.append(key, value)
 }
 
+// 判断是否要刷上一刷 ?
 func (b *tableCompactionBuilder) needFlush() bool {
 	return b.tw.tw.BytesLen() >= b.tableSize
 }
@@ -422,6 +425,7 @@ func (b *tableCompactionBuilder) cleanup() {
 	}
 }
 
+// 运行 cp 任务
 func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	snapResumed := b.snapIter > 0
 	hasLastUkey := b.snapHasLastUkey // The key might has zero length, so this is necessary.

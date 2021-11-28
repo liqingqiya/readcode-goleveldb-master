@@ -48,6 +48,7 @@ func (m *memDB) decref() {
 	}
 }
 
+// 获取到最新的 seq 编号
 // Get latest sequence number.
 func (db *DB) getSeq() uint64 {
 	// 获取到最新的序列号

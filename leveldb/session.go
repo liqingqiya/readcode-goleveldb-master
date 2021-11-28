@@ -33,6 +33,7 @@ func newErrManifestCorrupted(fd storage.FileDesc, field, reason string) error {
 	return errors.NewErrCorrupted(fd, &ErrManifestCorrupted{field, reason})
 }
 
+// 数据库的 session 句柄
 // session represent a persistent database session.
 type session struct {
 	// Need 64-bit alignment.
