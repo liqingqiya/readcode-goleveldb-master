@@ -23,6 +23,7 @@ var (
 	ErrIterReleased = errors.New("leveldb/memdb: iterator released")
 )
 
+// 最高的高度
 const tMaxHeight = 12
 
 type dbIter struct {
@@ -180,22 +181,22 @@ const (
 
 // DB is an in-memory key/value database.
 type DB struct {
-	cmp comparer.BasicComparer
-	rnd *rand.Rand
+	cmp    comparer.BasicComparer //
+	rnd    *rand.Rand             // 随机因子
+	mu     sync.RWMutex           //
+	kvData []byte                 // 默认 4M 大小，内存写 buffer
 
-	mu     sync.RWMutex
-	kvData []byte
 	// Node data:
 	// [0]         : KV offset
 	// [1]         : Key length
 	// [2]         : Value length
 	// [3]         : Height
 	// [3..height] : Next nodes
-	nodeData  []int
-	prevNode  [tMaxHeight]int
-	maxHeight int
-	n         int
-	kvSize    int
+	nodeData  []int           // 存储每个跳表节点的链接信息
+	prevNode  [tMaxHeight]int //
+	maxHeight int             // 当前的最高高度
+	n         int             // 元素的个数
+	kvSize    int             // mem db 的长度
 }
 
 func (p *DB) randHeight() (h int) {
@@ -209,32 +210,44 @@ func (p *DB) randHeight() (h int) {
 
 // Must hold RW-lock if prev == true, as it use shared prevNode slice.
 func (p *DB) findGE(key []byte, prev bool) (int, bool) {
+	// 从 node 0 开始索引
 	node := 0
+	// 从最高层开始索引
 	h := p.maxHeight - 1
+
 	for {
+		// 查找到下一个 node 的位置（ node 的偏移，在 p.nodeData 数组中 ）
 		next := p.nodeData[node+nNext+h]
 		cmp := 1
 		if next != 0 {
+			// 获取到这个 node 在 kvData 的偏移
 			o := p.nodeData[next]
+			// 取出来和 key 进行对比
 			cmp = p.cmp.Compare(p.kvData[o:o+p.nodeData[next+nKey]], key)
 		}
 		if cmp < 0 {
+			// 如果这个 node 点比 key 要小，那么说明要往后面找
 			// Keep searching in this list
 			node = next
 		} else {
+			// key 可能在前面，要往前面找
 			if prev {
 				p.prevNode[h] = node
 			} else if cmp == 0 {
+				// 找到了，则返回
 				return next, true
 			}
 			if h == 0 {
+				// 都找完了，则必须要退出了
 				return next, cmp == 0
 			}
+			// 下降高度
 			h--
 		}
 	}
 }
 
+//
 func (p *DB) findLT(key []byte) int {
 	node := 0
 	h := p.maxHeight - 1
@@ -253,6 +266,7 @@ func (p *DB) findLT(key []byte) int {
 	return node
 }
 
+//
 func (p *DB) findLast() int {
 	node := 0
 	h := p.maxHeight - 1
@@ -278,37 +292,52 @@ func (p *DB) Put(key []byte, value []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// 查找
 	if node, exact := p.findGE(key, true); exact {
+		// 当前 kvData 有多长，就是这次 kv 的 offset
 		kvOffset := len(p.kvData)
+		// 赋值 key/value
 		p.kvData = append(p.kvData, key...)
 		p.kvData = append(p.kvData, value...)
+		// 把这个 kv offset 存到对应的位置
 		p.nodeData[node] = kvOffset
 		m := p.nodeData[node+nVal]
 		p.nodeData[node+nVal] = len(value)
+		// 计量 key/value 的 size， 用来判断是否超过阈值，刷到盘里去
 		p.kvSize += len(value) - m
 		return nil
 	}
 
+	// 如果之前不存在
+
+	// 计算一个高度出来(随机的)
 	h := p.randHeight()
 	if h > p.maxHeight {
+		// 如果计算出来的高度比之前的还要高，则取最大的高度
+		// [以前的高度，最新的高度] 这个范围的 preNode 全部设置为 0
 		for i := p.maxHeight; i < h; i++ {
 			p.prevNode[i] = 0
 		}
 		p.maxHeight = h
 	}
-
+	// 计算出 kv 存放的 offset
 	kvOffset := len(p.kvData)
+	// key/value 赋值
 	p.kvData = append(p.kvData, key...)
 	p.kvData = append(p.kvData, value...)
 	// Node
 	node := len(p.nodeData)
+	// 添加到 nodeData
+	// node 索引格式：|--kvOffset(1B)--|--keyLen(1B)--|--valueLen(1B)--|--height(1B)--|
+	// 这个数组会扩张
+	// 有意思了，明明是 skiplist ，这里却是一个一维平坦的数组来存储索引
 	p.nodeData = append(p.nodeData, kvOffset, len(key), len(value), h)
 	for i, n := range p.prevNode[:h] {
 		m := n + nNext + i
 		p.nodeData = append(p.nodeData, p.nodeData[m])
 		p.nodeData[m] = node
 	}
-
+	// key/value 长度
 	p.kvSize += len(key) + len(value)
 	p.n++
 	return nil
@@ -458,6 +487,7 @@ func (p *DB) Reset() {
 	p.mu.Unlock()
 }
 
+// 创建一个内存数据库
 // New creates a new initialized in-memory key/value DB. The capacity
 // is the initial key/value buffer capacity. The capacity is advisory,
 // not enforced.
@@ -468,11 +498,11 @@ func (p *DB) Reset() {
 // The returned DB instance is safe for concurrent use.
 func New(cmp comparer.BasicComparer, capacity int) *DB {
 	p := &DB{
-		cmp:       cmp,
-		rnd:       rand.New(rand.NewSource(0xdeadbeef)),
-		maxHeight: 1,
-		kvData:    make([]byte, 0, capacity),
-		nodeData:  make([]int, 4+tMaxHeight),
+		cmp:       cmp,                                  // 设置一个对比器
+		rnd:       rand.New(rand.NewSource(0xdeadbeef)), // 设置一个随机因子
+		maxHeight: 1,                                    // 初始化高度为 1
+		kvData:    make([]byte, 0, capacity),            // 默认 4M 的大小，内存 buffer
+		nodeData:  make([]int, 4+tMaxHeight),            // 4+16
 	}
 	p.nodeData[nHeight] = tMaxHeight
 	return p

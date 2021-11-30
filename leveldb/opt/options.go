@@ -618,6 +618,7 @@ func (o *Options) GetStrict(strict Strict) bool {
 	return o.Strict&strict != 0
 }
 
+// 写 buffer ，默认 4M
 func (o *Options) GetWriteBuffer() int {
 	if o == nil || o.WriteBuffer <= 0 {
 		return DefaultWriteBuffer
