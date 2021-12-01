@@ -131,6 +131,7 @@ func (i *mergedIterator) next() bool {
 		key = i.keys[i.index]
 	}
 	for x, tkey := range i.keys {
+		// 对比 tkey 和 key 的大小
 		if tkey != nil && (key == nil || i.cmp.Compare(tkey, key) < 0) {
 			key = tkey
 			i.index = x

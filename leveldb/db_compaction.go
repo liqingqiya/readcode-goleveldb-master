@@ -148,6 +148,7 @@ type compactionTransactInterface interface {
 	revert() error
 }
 
+// 执行 compact
 func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 	defer func() {
 		if x := recover(); x != nil {
@@ -425,7 +426,7 @@ func (b *tableCompactionBuilder) cleanup() {
 	}
 }
 
-// 运行 cp 任务
+// 运行 compact 任务
 func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	snapResumed := b.snapIter > 0
 	hasLastUkey := b.snapHasLastUkey // The key might has zero length, so this is necessary.
@@ -790,6 +791,7 @@ func (db *DB) mCompaction() {
 	}
 }
 
+// major compact 的触发过程
 func (db *DB) tCompaction() {
 	var (
 		x     cCmd

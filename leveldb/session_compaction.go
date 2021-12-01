@@ -60,8 +60,10 @@ func (s *session) pickCompaction() *compaction {
 	var t0 tFiles
 	var typ int
 	if v.cScore >= 1 {
+		// 想要 compact 的 level
 		sourceLevel = v.cLevel
 		cptr := s.getCompPtr(sourceLevel)
+		// 获取到这一层的文件
 		tables := v.levels[sourceLevel]
 		if cptr != nil && sourceLevel > 0 {
 			n := len(tables)
@@ -312,7 +314,7 @@ func (c *compaction) newIterator() iterator.Iterator {
 		ro.Strict |= opt.StrictReader
 	}
 
-	// ?
+	// 遍历所有的 level 的 sst 文件
 	for i, tables := range c.levels {
 		if len(tables) == 0 {
 			continue
@@ -320,10 +322,13 @@ func (c *compaction) newIterator() iterator.Iterator {
 
 		// Level-0 is not sorted and may overlaps each other.
 		if c.sourceLevel+i == 0 {
+			// 0 层特殊，可能相互覆盖
+			// 把 0 层所有的 sst 都 new 一个 iterator ，加到 its 的数组
 			for _, t := range tables {
 				its = append(its, c.s.tops.newIterator(t, nil, ro))
 			}
 		} else {
+			// 非 0 层的 sst 文件
 			it := iterator.NewIndexedIterator(tables.newIndexIterator(c.s.tops, c.s.icmp, nil, ro), strict)
 			its = append(its, it)
 		}

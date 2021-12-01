@@ -96,6 +96,7 @@ func (p *sessionRecord) setSeqNum(num uint64) {
 	p.seqNum = num
 }
 
+// 添加 compact ptr
 func (p *sessionRecord) addCompPtr(level int, ikey internalKey) {
 	p.hasRec |= 1 << recCompPtr
 	p.compPtrs = append(p.compPtrs, cpRecord{level, ikey})

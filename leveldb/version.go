@@ -88,6 +88,7 @@ func (v *version) release() {
 	v.s.vmu.Unlock()
 }
 
+// 遍历 sst 文件
 func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int, t *tFile) bool, lf func(level int) bool) {
 	ukey := ikey.ukey()
 
@@ -106,33 +107,44 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 		}
 	}
 
+	// 遍历每一层的 sst 文件
 	// Walk tables level-by-level.
 	for level, tables := range v.levels {
 		if len(tables) == 0 {
 			continue
 		}
 
+		// 这个只能找到在这个 sst 的范围
+
+		// level 0 文件 key 会相互覆盖，所以处理相对不同
 		if level == 0 {
 			// Level-0 files may overlap each other. Find all files that
 			// overlap ukey.
 			for _, t := range tables {
 				if t.overlaps(v.s.icmp, ukey, ukey) {
+					// 找到命中的 sst 文件
 					if !f(level, t) {
+						// false 的话，return
+						// level 0 的话，false 就是没找到，那就不会走进这里。而是会走到下面去，执行 lf(level)
 						return
 					}
 				}
 			}
 		} else {
+			// 其他 level 的不存在覆盖，所以可以用二分更快的查找
 			if i := tables.searchMax(v.s.icmp, ikey); i < len(tables) {
 				t := tables[i]
+				// 看是否 imin <= ukey ，如果确认了这点，那就可以去这个 sst 文件里查找了
 				if v.s.icmp.uCompare(ukey, t.imin.ukey()) >= 0 {
 					if !f(level, t) {
+						// 其他 level 文件，找到了 ukey 之后，返回的是 false，走这个逻辑出去
 						return
 					}
 				}
 			}
 		}
 
+		// level 0 如果找到之后 ukey，会走到这里，执行 lf(level)
 		if lf != nil && !lf(level) {
 			return
 		}
@@ -178,32 +190,35 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		if noValue {
 			fikey, ferr = v.s.tops.findKey(t, ikey, ro)
 		} else {
+			// 去对应的 sst 文件找 key 去。到这已经确定 key 就在这个 sst 的范围内；
 			fikey, fval, ferr = v.s.tops.find(t, ikey, ro)
 		}
 
 		switch ferr {
-		case nil:
-		case ErrNotFound:
+		case nil: // 查找到了，没有错误
+		case ErrNotFound: // 该文件没找到
 			return true
-		default:
+		default: // 出错了，则把具体的错误返回
 			err = ferr
 			return false
 		}
-
+		// 解析这个 fikey，这个是一个 internal key，里面包含了多个信息
 		if fukey, fseq, fkt, fkerr := parseInternalKey(fikey); fkerr == nil {
 			if v.s.icmp.uCompare(ukey, fukey) == 0 {
 				// Level <= 0 may overlaps each-other.
 				if level <= 0 {
 					if fseq >= zseq {
-						zfound = true
-						zseq = fseq
-						zkt = fkt
-						zval = fval
+						zfound = true // 找到了
+						zseq = fseq   // seq 编号
+						zkt = fkt     // 类型
+						zval = fval   // 找到的值
 					}
+					// 这个会走到 return true 的逻辑
 				} else {
+					// 其他层级
 					switch fkt {
 					case keyTypeVal:
-						value = fval
+						value = fval // 找到的值
 						err = nil
 					case keyTypeDel:
 					default:
@@ -213,10 +228,11 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 				}
 			}
 		} else {
+			// internal key 解析出错了
 			err = fkerr
 			return false
 		}
-
+		// level 0 找到了这个 user key , 就走这个逻辑分支。也就是说，只有这个场景才会返回 true
 		return true
 	}, func(level int) bool {
 		if zfound {
@@ -228,6 +244,7 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 			default:
 				panic("leveldb: invalid internalKey type")
 			}
+			// 找到了，就不继续了
 			return false
 		}
 
