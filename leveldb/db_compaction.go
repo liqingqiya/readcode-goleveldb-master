@@ -143,14 +143,16 @@ func (cnt *compactionTransactCounter) incr() {
 	*cnt++
 }
 
+// 压缩事务的接口封装
 type compactionTransactInterface interface {
 	run(cnt *compactionTransactCounter) error
 	revert() error
 }
 
-// 执行 compact
+// 执行 compact 的事务
 func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 	defer func() {
+		// 如果发生了 panic ，那么走 revert 流程
 		if x := recover(); x != nil {
 			if x == errCompactionTransactExiting {
 				if err := t.revert(); err != nil {
@@ -234,6 +236,7 @@ func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 	}
 }
 
+// 函数式接口
 type compactionTransactFunc struct {
 	runFunc    func(cnt *compactionTransactCounter) error
 	revertFunc func() error
@@ -250,23 +253,30 @@ func (t *compactionTransactFunc) revert() error {
 	return nil
 }
 
+// 对 compactionTransact 的一层封装
 func (db *DB) compactionTransactFunc(name string, run func(cnt *compactionTransactCounter) error, revert func() error) {
 	db.compactionTransact(name, &compactionTransactFunc{run, revert})
 }
 
+// 用 panic 跳流程？这合适吗
 func (db *DB) compactionExitTransact() {
 	panic(errCompactionTransactExiting)
 }
 
 func (db *DB) compactionCommit(name string, rec *sessionRecord) {
+	// 可以并行的后台执行各种 compact ，但是递交的时候只能是串行的；
+	// compCommitLK 就是用来保证串行化的
 	db.compCommitLk.Lock()
 	defer db.compCommitLk.Unlock() // Defer is necessary.
+
+	// 只有 run，没有 revert。修改和递交引用关系就在此。
 	db.compactionTransactFunc(name+"@commit", func(cnt *compactionTransactCounter) error {
 		return db.s.commit(rec, true)
 	}, nil)
 }
 
 func (db *DB) memCompaction() {
+	// 取只读的 memdb 出来
 	mdb := db.getFrozenMem()
 	if mdb == nil {
 		return
@@ -300,13 +310,16 @@ func (db *DB) memCompaction() {
 		flushLevel int
 	)
 
+	// 执行 memdb 的 flush（ minor compaction ）
 	// Generate tables.
 	db.compactionTransactFunc("memdb@flush", func(cnt *compactionTransactCounter) (err error) {
 		stats.startTimer()
+		// 把 readonly memdb flush 到磁盘
 		flushLevel, err = db.s.flushMemdb(rec, mdb.DB, db.memdbMaxLevel)
 		stats.stopTimer()
 		return
 	}, func() error {
+		// 回退操作也是简单，删除这个新创建的就好
 		for _, r := range rec.addedTables {
 			db.logf("memdb@flush revert @%d", r.num)
 			if err := db.s.stor.Remove(storage.FileDesc{Type: storage.TypeTable, Num: r.num}); err != nil {
@@ -319,6 +332,8 @@ func (db *DB) memCompaction() {
 	rec.setJournalNum(db.journalFd.Num)
 	rec.setSeqNum(db.frozenSeq)
 
+	// 无害的 compact 做完了（只是新增一些无害的文件），该递交了；
+	// 而为了的 commit 其实就是修改索引，最后变更指向关系。
 	// Commit.
 	stats.startTimer()
 	db.compactionCommit("memdb", rec)
@@ -333,6 +348,7 @@ func (db *DB) memCompaction() {
 	db.compStats.addStat(flushLevel, stats)
 	atomic.AddUint32(&db.memComp, 1)
 
+	// flush 完成，释放掉 frozen mem
 	// Drop frozen memdb.
 	db.dropFrozenMem()
 
@@ -385,6 +401,7 @@ func (b *tableCompactionBuilder) appendKV(key, value []byte) error {
 			case ch := <-b.db.tcompPauseC:
 				b.db.pauseCompaction(ch)
 			case <-b.db.closeC:
+				// 如果关闭了，那么走异常跳出
 				b.db.compactionExitTransact()
 			default:
 			}
@@ -442,9 +459,12 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	b.stat1.startTimer()
 	defer b.stat1.stopTimer()
 
+	// 创建一个迭代器，从这个里面将捞出来一个个 key/value
 	iter := b.c.newIterator()
 	defer iter.Release()
+	// 遍历这个迭代器
 	for i := 0; iter.Next(); i++ {
+		// 计数跑了多少次循环
 		// Incr transact counter.
 		cnt.incr()
 
@@ -468,6 +488,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 			if !hasLastUkey || b.s.icmp.uCompare(lastUkey, ukey) != 0 {
 				// First occurrence of this user key.
 
+				// 看是否需要轮转出一个 sst 文件
 				// Only rotate tables if ukey doesn't hop across.
 				if b.tw != nil && (shouldStop || b.needFlush()) {
 					if err := b.flush(); err != nil {
@@ -483,7 +504,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 					b.snapKerrCnt = b.kerrCnt
 					b.snapDropCnt = b.dropCnt
 				}
-
+				// 记录一下，给下一次用来做判断
 				hasLastUkey = true
 				lastUkey = append(lastUkey[:0], ukey...)
 				lastSeq = keyMaxSeq
@@ -491,9 +512,11 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 
 			switch {
 			case lastSeq <= b.minSeq:
+				// 如果是相同的 key，并且已经有新的 entry 了的，那么旧的就应该被抛弃
 				// Dropped because newer entry for same user key exist
 				fallthrough // (A)
 			case kt == keyTypeDel && seq <= b.minSeq && b.c.baseLevelForKey(lastUkey):
+				// 如果是被删除的 key
 				// For this user key:
 				// (1) there is no data in higher levels
 				// (2) data in lower levels will have larger seq numbers
@@ -519,6 +542,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 			b.kerrCnt++
 		}
 
+		// 写入到新的 sst 文件
 		if err := b.appendKV(ikey, iter.Value()); err != nil {
 			return err
 		}
@@ -528,6 +552,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 		return err
 	}
 
+	// 迭代完成，最后 flush 一次
 	// Finish last table.
 	if b.tw != nil && !b.tw.empty() {
 		return b.flush()
@@ -535,7 +560,9 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	return nil
 }
 
+// 压缩事务如果失败了，那么回退的逻辑就在这里
 func (b *tableCompactionBuilder) revert() error {
+	// 把这次压缩了的文件全部删除掉
 	for _, at := range b.rec.addedTables {
 		b.s.logf("table@build revert @%d", at.num)
 		if err := b.s.stor.Remove(storage.FileDesc{Type: storage.TypeTable, Num: at.num}); err != nil {
@@ -572,6 +599,7 @@ func (db *DB) tableCompaction(c *compaction, noTrivial bool) {
 	minSeq := db.minSeq()
 	db.logf("table@compaction L%d·%d -> L%d·%d S·%s Q·%d", c.sourceLevel, len(c.levels[0]), c.sourceLevel+1, len(c.levels[1]), shortenb(sourceSize), minSeq)
 
+	// 压缩事务的实现
 	b := &tableCompactionBuilder{
 		db:        db,
 		s:         db.s,
@@ -582,6 +610,7 @@ func (db *DB) tableCompaction(c *compaction, noTrivial bool) {
 		strict:    db.s.o.GetStrict(opt.StrictCompaction),
 		tableSize: db.s.o.GetCompactionTableSize(c.sourceLevel + 1),
 	}
+	// 直接在这里调用 db.compactionTransact
 	db.compactionTransact("table@build", b)
 
 	// Commit.

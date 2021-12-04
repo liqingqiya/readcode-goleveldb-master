@@ -35,6 +35,7 @@ func (m *memDB) incref() {
 }
 
 func (m *memDB) decref() {
+	// 引用计数为 0 的时候销毁
 	if ref := atomic.AddInt32(&m.ref, -1); ref == 0 {
 		// Only put back memdb with std capacity.
 		if m.Capacity() == m.db.s.o.GetWriteBuffer() {
@@ -143,9 +144,11 @@ func (db *DB) newMem(n int) (mem *memDB, err error) {
 		db.journalWriter.Close()
 		db.frozenJournalFd = db.journalFd
 	}
+	// 旧的 memdb 切只读
 	db.journalWriter = w
 	db.journalFd = fd
 	db.frozenMem = db.mem
+	// 获取一个新的 memdb
 	mem = db.mpoolGet(n)
 	mem.incref() // for self
 	mem.incref() // for caller
@@ -191,6 +194,7 @@ func (db *DB) hasFrozenMem() bool {
 	return db.frozenMem != nil
 }
 
+// 取只读的 memdb 出来
 // Get frozen memdb.
 func (db *DB) getFrozenMem() *memDB {
 	db.memMu.RLock()
@@ -201,6 +205,7 @@ func (db *DB) getFrozenMem() *memDB {
 	return db.frozenMem
 }
 
+// readonly mem 释放掉
 // Drop frozen memdb; assume that frozen memdb isn't nil.
 func (db *DB) dropFrozenMem() {
 	db.memMu.Lock()

@@ -771,6 +771,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 		}
 	}
 
+	// 把两个 memdb 都取出来
 	em, fm := db.getMems()
 	for _, m := range [...]*memDB{em, fm} {
 		if m == nil {

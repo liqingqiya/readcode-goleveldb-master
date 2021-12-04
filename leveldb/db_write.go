@@ -32,6 +32,7 @@ func (db *DB) writeJournal(batches []*Batch, seq uint64, sync bool) error {
 	return nil
 }
 
+// 内存写到一定的阈值之后，就会 rotate 出来一个只读的。可写的永远只有一个。
 func (db *DB) rotateMem(n int, wait bool) (mem *memDB, err error) {
 	retryLimit := 3
 retry:

@@ -210,9 +210,12 @@ func (s *session) recover() (err error) {
 
 // Commit session; need external synchronization.
 func (s *session) commit(r *sessionRecord, trivial bool) (err error) {
+	// 获取到当前的 version
 	v := s.version()
+	// 获取的时候会加计数，所以自然用完要减计数
 	defer v.release()
 
+	// fork 一个新的 version 变量出来
 	// spawn new version based on current version
 	nv := v.spawn(r, trivial)
 
@@ -225,12 +228,15 @@ func (s *session) commit(r *sessionRecord, trivial bool) (err error) {
 	}()
 
 	if s.manifest == nil {
+		// 如果没有 manifest ，那么就新建一个
 		// manifest journal writer not yet created, create one
 		err = s.newManifest(r, nv)
 	} else {
+		// 如果已经有 manifest ，那么就以此为基础，apply session record
 		err = s.flushManifest(r)
 	}
 
+	// 最后，修改内存指向
 	// finally, apply new version if no error rise
 	if err == nil {
 		s.setVersion(r, nv)

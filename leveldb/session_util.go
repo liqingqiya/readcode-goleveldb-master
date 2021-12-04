@@ -270,6 +270,7 @@ func (s *session) setVersion(r *sessionRecord, v *version) {
 	// Hold by session. It is important to call this first before releasing
 	// current version, otherwise the still used files might get released.
 	v.incref()
+	// 如果存在旧的 version，那么就必须处理下了
 	if s.stVersion != nil {
 		if r != nil {
 			var (
@@ -282,6 +283,8 @@ func (s *session) setVersion(r *sessionRecord, v *version) {
 			for _, t := range r.deletedTables {
 				deleted = append(deleted, t.num)
 			}
+			// 把 record 的内容分析一下，然后生成一个 delta ，发送到 channel 里，这个 channel 是 refLoop 这个后台的 goroutine 处理；
+			// 这些东西后台慢慢处理就好，不影响大局，所以放到异步来做
 			select {
 			case s.deltaCh <- &vDelta{vid: s.stVersion.id, added: added, deleted: deleted}:
 			case <-v.s.closeC:
@@ -291,6 +294,7 @@ func (s *session) setVersion(r *sessionRecord, v *version) {
 		// Release current version.
 		s.stVersion.releaseNB()
 	}
+	// 设置成新的 version
 	s.stVersion = v
 }
 
@@ -359,6 +363,7 @@ func (s *session) getCompPtr(level int) internalKey {
 // Fill given session record obj with current states; need external
 // synchronization.
 func (s *session) fillRecord(r *sessionRecord, snapshot bool) {
+	// 设置下一个可用的句柄
 	r.setNextFileNum(s.nextFileNum())
 
 	if snapshot {
@@ -403,10 +408,12 @@ func (s *session) recordCommited(rec *sessionRecord) {
 // Create a new manifest file; need external synchronization.
 func (s *session) newManifest(rec *sessionRecord, v *version) (err error) {
 	fd := storage.FileDesc{Type: storage.TypeManifest, Num: s.allocFileNum()}
+	// 文件句柄
 	writer, err := s.stor.Create(fd)
 	if err != nil {
 		return
 	}
+	// 经过 journal 模块封装的 writer
 	jw := journal.NewWriter(writer)
 
 	if v == nil {
@@ -466,19 +473,23 @@ func (s *session) newManifest(rec *sessionRecord, v *version) (err error) {
 // Flush record to disk.
 func (s *session) flushManifest(rec *sessionRecord) (err error) {
 	s.fillRecord(rec, false)
+	// 下一个存储块
 	w, err := s.manifest.Next()
 	if err != nil {
 		return
 	}
+	// 把 record 编码并写到当前的 manifest 文件
 	err = rec.encode(w)
 	if err != nil {
 		return
 	}
+	// 把数据确实刷到磁盘文件 manifest
 	err = s.manifest.Flush()
 	if err != nil {
 		return
 	}
 	if !s.o.GetNoSync() {
+		// sync 一把
 		err = s.manifestWriter.Sync()
 		if err != nil {
 			return
