@@ -62,8 +62,17 @@ type block struct {
 	restartsOffset int              // restart 数组从哪个偏移开始
 }
 
+// 找到哪个 restart point 范围，
+// 找到大致范围之后再一个个找；
 func (b *block) seek(cmp comparer.Comparer, rstart, rlimit int, key []byte) (index, offset int, err error) {
-	// 在这个 restart point 数组中，查找
+	// 在这个 restart point 数组中，查找到这个最小的大于它的位置，然后往前推一个
+	/*
+			<= key <
+				|
+		｜-------entry-----｜-----entry-----|
+		/                   \
+		r index-1            r index
+	*/
 	index = sort.Search(b.restartsLen-rstart-(b.restartsLen-rlimit), func(i int) bool {
 		// i 这个位置的 restart point 的 offset 是啥？
 		offset := int(binary.LittleEndian.Uint32(b.data[b.restartsOffset+4*(rstart+i):]))
@@ -71,12 +80,20 @@ func (b *block) seek(cmp comparer.Comparer, rstart, rlimit int, key []byte) (ind
 		v1, n1 := binary.Uvarint(b.data[offset:])   // key length
 		_, n2 := binary.Uvarint(b.data[offset+n1:]) // value length
 		m := offset + n1 + n2
+
+		// 找到个最小的比这个 key 大的；
+		// 其实也就是找到 key 落到哪个 restart point 范围
 		return cmp.Compare(b.data[m:m+int(v1)], key) > 0
 	}) + rstart - 1
+
 	if index < rstart {
 		// The smallest key is greater-than key sought.
 		index = rstart
 	}
+
+	// b.restartsOffset 是 restart point 数组开始的位置
+	// index 是数组的第几个元素
+	// 所以这计算出来的 offset 就是这个 restart 点的数据 offset
 	offset = int(binary.LittleEndian.Uint32(b.data[b.restartsOffset+4*index:]))
 	return
 }
@@ -241,7 +258,7 @@ func (i *blockIter) Seek(key []byte) bool {
 		return false
 	}
 
-	// 找到 key 所在的位置？
+	// 找到 key 所在的 restart point 位置范围？
 	ri, offset, err := i.block.seek(i.tr.cmp, i.riStart, i.riLimit, key)
 	if err != nil {
 		i.sErr(err)
@@ -252,9 +269,12 @@ func (i *blockIter) Seek(key []byte) bool {
 	if i.dir == dirSOI || i.dir == dirEOI {
 		i.dir = dirForward
 	}
+
+	// 通过 restart point 定位到大致的片段，接下来就要逐个遍历看看喽
 	for i.Next() {
-		// 定位匹配位置
+		// 逐个比较 key，找到个 >= 的就可以了
 		if i.tr.cmp.Compare(i.key, key) >= 0 {
+			// seek 找到了个位置 [ , )
 			return true
 		}
 	}

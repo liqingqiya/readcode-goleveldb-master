@@ -32,10 +32,14 @@ type indexedIterator struct {
 	closed bool
 }
 
+// 设置数据部分
 func (i *indexedIterator) setData() {
 	if i.data != nil {
 		i.data.Release()
 	}
+
+	// i.data 设置为 i.index 当前指向的内容（Iterator）
+	// 旁白：其实大概率就是某个 sst 文件的迭代器
 	i.data = i.index.Get()
 }
 
@@ -79,12 +83,14 @@ func (i *indexedIterator) First() bool {
 		i.err = ErrIterReleased
 		return false
 	}
-
+	// i.index 指向第一个
 	if !i.index.First() {
+		// 如果指向出错了，那么走异常逻辑
 		i.indexErr()
 		i.clearData()
 		return false
 	}
+	// 设置 i.data 为当前 i.index 指向的迭代器（也是 Iterator 的实现）
 	i.setData()
 	return i.Next()
 }
@@ -121,12 +127,17 @@ func (i *indexedIterator) Seek(key []byte) bool {
 		return false
 	}
 
+	// 找到哪个 iterator
 	if !i.index.Seek(key) {
 		i.indexErr()
 		i.clearData()
 		return false
 	}
+
+	// 设置 i.data 为当前 i.index 指向的迭代器（也是 Iterator 的实现）
 	i.setData()
+
+	// 这个 data iterator Seek 一下
 	if !i.data.Seek(key) {
 		if i.dataErr() {
 			return false

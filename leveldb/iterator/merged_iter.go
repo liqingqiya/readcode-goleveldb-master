@@ -111,8 +111,10 @@ func (i *mergedIterator) Seek(key []byte) bool {
 		return false
 	}
 
+	// 遍历 i.iters 数组，这里面可能有 memDB 的 iter，L0 的 iter，非 L0 的 iter
 	for x, iter := range i.iters {
 		switch {
+		// iter 定位到 key
 		case iter.Seek(key):
 			i.keys[x] = assertKey(iter.Key())
 		case i.iterErr(iter):
