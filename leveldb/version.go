@@ -170,7 +170,7 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		zval   []byte
 	)
 
-	err = ErrNotFound
+	err = ErrNotFound // 一开始就设置成 not found，如果后续没更新，那么就会以此返回出去
 
 	// Since entries never hop across level, finding key/value
 	// in smaller level make later levels irrelevant.
@@ -204,7 +204,7 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		}
 		// 解析这个 fikey，这个是一个 internal key，里面包含了多个信息
 		if fukey, fseq, fkt, fkerr := parseInternalKey(fikey); fkerr == nil {
-			if v.s.icmp.uCompare(ukey, fukey) == 0 {
+			if v.s.icmp.uCompare(ukey, fukey) == 0 { // 这里必须要比一下
 				// Level <= 0 may overlaps each-other.
 				if level <= 0 {
 					if fseq >= zseq {

@@ -150,6 +150,7 @@ const (
 	dirForward
 )
 
+// 对一个通用 block 的迭代封装
 type blockIter struct {
 	tr            *Reader       // sst 读句柄
 	block         *block        // 对应的 block
@@ -854,6 +855,9 @@ func (r *Reader) NewIterator(slice *util.Range, ro *opt.ReadOptions) iterator.It
 	if err != nil {
 		return iterator.NewEmptyIterator(err)
 	}
+
+	// sst 文件的 data block 的索引块: index block
+	// 一般查找，先查索引，确认落到哪个 datablock ，再去查找 datablock 内部的内容
 	index := &indexIter{
 		blockIter: r.newBlockIter(indexBlock, rel, slice, true),
 		tr:        r,
@@ -881,7 +885,7 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 	index := r.newBlockIter(indexBlock, nil, nil, true)
 	defer index.Release()
 
-	if !index.Seek(key) {
+	if !index.Seek(key) { // seek 到 >= key 的位置(注意，这个位置不一定 == key)
 		if err = index.Error(); err == nil {
 			err = ErrNotFound
 		}
@@ -911,7 +915,7 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 	}
 
 	data := r.getDataIter(dataBH, nil, r.verifyChecksum, !ro.GetDontFillCache())
-	if !data.Seek(key) {
+	if !data.Seek(key) { // data block seek 到 >= key 的位置（注意，不一定 == key）
 		data.Release()
 		if err = data.Error(); err != nil {
 			return
@@ -942,7 +946,7 @@ func (r *Reader) find(key []byte, filtered bool, ro *opt.ReadOptions, noValue bo
 	}
 
 	// Key doesn't use block buffer, no need to copy the buffer.
-	rkey = data.Key()
+	rkey = data.Key() // >= key 的位置的 key，这个 key 不一定是结果。外面要做判断 ukey 的比较；
 	if !noValue {
 		if r.bpool == nil {
 			value = data.Value()

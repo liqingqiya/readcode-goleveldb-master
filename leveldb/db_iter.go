@@ -206,6 +206,7 @@ func (i *dbIter) Seek(key []byte) bool {
 	return false
 }
 
+// 迭代器已经准备好了，这就是判断一些东西。准备给下一次用，设置好 key/value
 func (i *dbIter) next() bool {
 	for {
 		if ukey, seq, kt, kerr := parseInternalKey(i.iter.Key()); kerr == nil {

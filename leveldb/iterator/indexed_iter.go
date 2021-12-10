@@ -40,6 +40,7 @@ func (i *indexedIterator) setData() {
 
 	// i.data 设置为 i.index 当前指向的内容（Iterator）
 	// 旁白：其实大概率就是某个 sst 文件的迭代器
+	// 如果这个 indexedIterator 是对一个 sst 的封装，那么 index 就是 index block，这里的 data 就是 data block
 	i.data = i.index.Get()
 }
 
