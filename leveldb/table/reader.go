@@ -167,11 +167,11 @@ type blockIter struct {
 	dir dir
 	// Restart index slice range.
 	riStart int // 标明数组的起始位置
-	riLimit int // 标明数组的长度
+	riLimit int // 标明 restart points 数组的长度
 	// Offset slice range.
 	offsetStart     int // entry 的 offset 开始位置
 	offsetRealStart int // offset 真实的起始位置
-	offsetLimit     int // entry 的 end 的位置
+	offsetLimit     int // entry 的 end 的位置 ( 也是 restart point 的起始位置 )
 	// Error.
 	err error
 }
@@ -520,6 +520,7 @@ func (b *filterBlock) Release() {
 	b.data = nil
 }
 
+// index block 的迭代器的对应结构
 type indexIter struct {
 	*blockIter
 	tr    *Reader
