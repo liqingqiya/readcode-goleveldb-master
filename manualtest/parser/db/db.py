@@ -16,7 +16,8 @@ firstChunkType = 2
 middleChunkType = 3
 lastChunkType = 4
 
-recComparer = 1
+# leveldb 标准
+recComparer = 1 
 recJournalNum = 2
 recNextFileNum = 3
 recSeqNum = 4
@@ -25,14 +26,26 @@ recDelTable = 6
 recAddTable = 7
 recPrevJournalNum = 9
 
+# rocksdb 扩展
+kMinLogNumberToKeep = 10 
+kNewFile2 = 100
+kNewFile3 = 102
+kNewFile4 = 103
+kColumnFamily = 200
+kColumnFamilyAdd = 201
+kColumnFamilyDrop = 202
+kMaxColumnFamily = 203
+kInAtomicGroup=300
 
 class SStTableMeta:
-    def __init__(self, level, num, size=None, imin=None, imax=None) -> None:
+    def __init__(self, level, num, size=None, imin=None, imax=None, imin_seq=None, imax_seq=None) -> None:
         self.level = level
         self.num = num
         self.size = size
         self.imin = imin
         self.imax = imax
+        self.imin_seq = imin_seq
+        self.imax_seq = imax_seq
 
         self.init_parse()
 
@@ -44,6 +57,10 @@ class SStTableMeta:
             s += "imin:{}".format(self.imin)
         if self.imax is not None:
             s += "imax:{}".format(self.imax)
+        if self.imin_seq is not None:
+            s += "imin_seq:{}".format(self.imin_seq)
+        if self.imax_seq is not None:
+            s += "imax_seq:{}".format(self.imax_seq)
         return s
 
     def init_parse(self):
@@ -60,6 +77,8 @@ class SStTableMeta:
             "size": "size",
             "imin": "imin",
             "imax": "imax",
+            "imin_seq": "imin_seq",
+            "imax_seq": "imax_seq",
         }
         return list(header.keys())
 
@@ -89,6 +108,12 @@ class SessionRecord:
         self.added_tables = []
         self.delete_tables = []
 
+        # rocksdb
+        self.column_family_id = None
+        self.column_family_name = None
+        self.column_family_add = None
+        self.column_family_del = None
+
         if self.data is not None:
             self.decode()
 
@@ -110,6 +135,12 @@ class SessionRecord:
             "comp_ptrs": "comp_ptrs",
             "added_tables": "added_tables",
             "delete_tables": "delete_tables",
+
+            # rocksdb
+            "column_family_id": "column_family_id",
+            "column_family_name": "column_family_name",
+            "column_family_add": "column_family_add",
+            "column_family_del": "column_family_del",
         }
         return list(header.keys())
 
@@ -173,6 +204,44 @@ class SessionRecord:
                 level = self.read_uvarint()
                 num = self.read_uvarint()
                 self.delete_tables.append(SStTableMeta(level, num))
+
+            elif rec == kMaxColumnFamily:
+                print("rocksdb: {}".format(rec))
+                cf_id = self.read_uvarint()
+                print("max column family:%d".format(cf_id))
+
+            elif rec == kMinLogNumberToKeep:
+                print("rocksdb: {}".format(rec))
+                min_log_num_to_keep = self.read_uvarint()
+                print("min log num to kee:%d".format(min_log_num_to_keep))
+
+            elif rec == kNewFile2:
+                level = self.read_uvarint()
+                num = self.read_uvarint()
+                size = self.read_uvarint()
+                imin = self.read_bytes()
+                imax = self.read_bytes()
+                imin_seq = self.read_uvarint()
+                imax_seq = self.read_uvarint()
+
+                self.added_tables.append(
+                    SStTableMeta(level, num, size, imin, imax, imin_seq, imax_seq))
+
+            elif rec == kNewFile3:
+                raise Exception
+            elif rec== kNewFile4:
+                raise Exception
+            elif rec == kColumnFamily:
+                self.column_family_id = self.read_uvarint()
+            elif rec == kColumnFamilyAdd:
+                self.column_family_name = self.read_bytes()
+                self.column_family_add = True
+            elif rec == kColumnFamilyDrop:
+                self.column_family_del = True
+            elif rec == kInAtomicGroup:
+                raise Exception
+            else:
+                raise Exception
 
 
 class JournalRecord:
