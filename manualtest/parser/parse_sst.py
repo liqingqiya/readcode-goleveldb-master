@@ -32,6 +32,7 @@ def main(options):
 
     # 创建 sst 文件对象
     sst = create_sst(options.path)
+    print(sst.footer)
 
     blocks = []
 
@@ -60,7 +61,7 @@ def main(options):
 
         def get_user_key_value(ikey, value):
             ukey, seq, kt = parse_internal_key(ikey)
-            kv_rows.append([ukey, seq, kt, value])
+            kv_rows.append([ukey, seq, kt, len(value)])
 
         if options.show_detail > 0:
             datablock.Scan(get_user_key_value)

@@ -15,7 +15,13 @@ block_type_filter = "filter"
 
 blockTrailerLen = 5
 footerLen = 48
-magic = b"\x57\xfb\x80\x8b\x24\x75\x47\xdb"
+goleveldb_magic = b"\x57\xfb\x80\x8b\x24\x75\x47\xdb"
+
+# rocksdb 
+rocksdb_magic = b'\xf7\xcf\xf4\x85\xb7A\xe2\x88'
+rocksdb_footerlen = 1+2*20+4+8
+
+max_footer_len = max(footerLen, rocksdb_footerlen)
 
 keyTypeDel = 0
 keyTypeVal = 1
@@ -40,6 +46,55 @@ class InternalKey:
     def __str__(self) -> str:
         return "key:{}\nseq:{}\nkt:{}".format(self.ukey, self.seq, self.kt)
 
+class Footer:
+    def __init__(self, data) -> None:
+        self.raw_data = data
+
+        self.version = None
+        self.checksum_type = None
+        self.magic = None
+
+        self.meta_bh = None
+        self.index_bh = None
+
+        self.sst_type = None
+
+        self.parse(data)
+
+    def __str__(self) -> str:
+        return "---- Footer details: ----\n\tversion:{}\n\tchecksum_type:{}\n\tmagic:{}\n\tmeta_bh:{}\n\tindex_bh:{}\n\tsst_type:{}\n\t".format(
+            self.version, self.checksum_type, self.magic, self.meta_bh, self.index_bh, self.sst_type)
+
+    def parse(self, raw_data):
+        assert footerLen <= len(raw_data) <= max_footer_len
+
+        # 校验魔数
+        pos = len(raw_data) - 8
+        if raw_data[pos: pos+8] == goleveldb_magic:
+            self.sst_type = "goleveldb"
+        elif raw_data[pos: pos+8] == rocksdb_magic:
+            self.sst_type = "rocksdb"
+        else:
+            print("magic is invalid")
+            raise
+        
+        # leveldb: metaindex(20) / index(20) / magic(8)
+
+        pos = 0
+        if self.sst_type == "rocksdb":
+            # rocksdb: checksum_type(1) / metaindex(20) / index(20) / version(4) / magic(8)
+            ver_ptr = max_footer_len - 8 - 4
+            self.version = struct.unpack("<I", raw_data[ver_ptr:ver_ptr+4])
+            self.checksum_type, n = uvarint(raw_data)
+            assert n == 1
+            pos += n
+
+        self.meta_bh, n = decode_block_handle(raw_data[pos:])
+        if n == 0:
+            raise
+        self.index_bh, n = decode_block_handle(raw_data[pos+n:])
+        if n == 0:
+            raise
 
 class Block:
 
@@ -149,7 +204,8 @@ class Sst:
         size = stat.st_size
         self.size = size
 
-        self.meta_bh, self.index_bh = self.read_footer()
+        self.footer = self.read_footer()
+        self.meta_bh, self.index_bh = self.footer.meta_bh, self.footer.index_bh
 
     def read_block(self, block_type, bh, verifyCrc):
         data = self.read_raw_block(bh, verifyCrc)
@@ -183,25 +239,23 @@ class Sst:
         return data
 
     def read_footer(self):
-        footerPos = self.size - footerLen
-        footer = os.pread(self.fd, footerLen, footerPos)
+        footer_pos = self.size - max_footer_len
+        footer_buf = os.pread(self.fd, max_footer_len, footer_pos)
 
         # 校验魔数
-        if footer[footerLen-len(magic): footerLen] != magic:
-            print("magic is invalid")
-            return
+        if footer_buf[max_footer_len-8:] == goleveldb_magic:
+            self.sst_type = "goleveldb"
+        elif footer_buf[max_footer_len-8:] == rocksdb_magic:
+            self.sst_type = "rocksdb"
+        else:
+            raise
+        
+        if self.sst_type == "goleveldb":
+            footer_buf = footer_buf[max_footer_len-footerLen:]
 
-        meta_bh, n = decode_block_handle(footer[:])
-        if n == 0:
-            print("error")
-            return
+        footer = Footer(footer_buf)
 
-        index_bh, n = decode_block_handle(footer[n:])
-        if n == 0:
-            print("error")
-            return
-
-        return meta_bh, index_bh
+        return footer
 
     def read_metablock(self):
         return self.read_block(block_type_meta_index, self.meta_bh, True)
