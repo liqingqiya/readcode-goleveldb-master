@@ -6,7 +6,7 @@ import struct
 import logging.handlers
 from typing import Iterator
 
-from .sst import parse_internal_key, uvarint
+from .sst import InternalKey, parse_internal_key, uvarint
 
 header_size = 7
 block_size = 32*1024
@@ -65,9 +65,9 @@ class SStTableMeta:
 
     def init_parse(self):
         if self.imin is not None:
-            self.imin = parse_internal_key(self.imin)
+            self.imin = InternalKey(self.imin)
         if self.imax is not None:
-            self.imax = parse_internal_key(self.imax)
+            self.imax = InternalKey(self.imax)
 
     def header(self):
         # key 是 table 的 key，value 是对象属性的名字

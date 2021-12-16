@@ -37,6 +37,9 @@ class InternalKey:
         self.seq = seq
         self.kt = kt
 
+    def __str__(self) -> str:
+        return "key:{}\nseq:{}\nkt:{}".format(self.ukey, self.seq, self.kt)
+
 
 class Block:
 

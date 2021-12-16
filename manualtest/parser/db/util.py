@@ -6,7 +6,7 @@ import struct
 
 def show_table(header, rows):
     from tabulate import tabulate
-    print(tabulate(rows, headers=header, tablefmt="pretty", showindex="always"))
+    print(tabulate(rows, headers=header, tablefmt="pretty", showindex="always", stralign="left"))
 
 
 def last_byte(x):

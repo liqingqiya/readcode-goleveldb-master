@@ -21,19 +21,22 @@ def main(options):
     session_header = SessionRecord().header()
     session_rows = []
 
-    sst_header = SStTableMeta(0, 0).header()
+    sst_header = ["op"] + SStTableMeta(0, 0).header()
     sst_rows = []
 
     for sess in sessions:
         row = sess.generate_row()
         session_rows.append(row)
         for t in sess.added_tables:
-            sst_rows.append(t.generate_row())
+            row = ["Add"] + t.generate_row()
+            sst_rows.append(row)
         for t in sess.delete_tables:
-            sst_rows.append(t.generate_row())
+            row = ["Del"] + t.generate_row()
+            sst_rows.append(row)
 
     print("===== Session Records ====")
     show_table(session_header, session_rows)
+    print()
     print()
 
     print("==== sst tables ====")
