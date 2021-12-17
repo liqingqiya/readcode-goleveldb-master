@@ -43,3 +43,9 @@ def uvarint(buf):
 
 def leveldb_crc_mask(v):
     return (v >> 15 | v << 17) + 0xa282ead8
+
+
+def maybe_encode_hex(ukey):
+    if isinstance(ukey, bytes):
+        return ukey.hex()
+    return ukey

@@ -6,7 +6,7 @@ import logging.handlers
 import struct
 import snappy
 
-from .util import uvarint, put_uvarint
+from .util import uvarint, put_uvarint, maybe_encode_hex
 
 block_type_index = "index"
 block_type_data = "data"
@@ -18,6 +18,7 @@ footerLen = 48
 goleveldb_magic = b"\x57\xfb\x80\x8b\x24\x75\x47\xdb"
 
 # rocksdb 
+# 0x88e241b785f4cff7 little 
 rocksdb_magic = b'\xf7\xcf\xf4\x85\xb7A\xe2\x88'
 rocksdb_footerlen = 1+2*20+4+8
 
@@ -25,6 +26,12 @@ max_footer_len = max(footerLen, rocksdb_footerlen)
 
 keyTypeDel = 0
 keyTypeVal = 1
+
+# metaindex block key
+# rocksdb 
+kPropertiesBlock = "rocksdb.properties"
+kCompressionDictBlock = "rocksdb.compression_dict"
+kRangeDelBlock = "rocksdb.range_del"
 
 
 class BlockHandle:
@@ -39,7 +46,7 @@ class BlockHandle:
 class InternalKey:
     def __init__(self, ikey) -> None:
         ukey, seq, kt = parse_internal_key(ikey)
-        self.ukey = ukey
+        self.ukey = maybe_encode_hex(ukey)
         self.seq = seq
         self.kt = kt
 

@@ -6,8 +6,9 @@ import os
 import logging.handlers
 
 from db.sst import Sst, decode_block_handle
-from db.sst import parse_internal_key
+from db.sst import parse_internal_key, kPropertiesBlock
 from db.util import show_table
+from db.util import maybe_encode_hex
 
 
 def create_sst(path):
@@ -18,6 +19,8 @@ def create_sst(path):
         print("path:<{}> invalid ? exit".format(path))
         exit(1)
 
+def show_keyvalue(key, value):
+    print("\t{}:\t{}".format(key, (value)))
 
 def main(options):
     if not os.path.exists(options.path):
@@ -40,10 +43,23 @@ def main(options):
     metablock = sst.read_metablock()
     blocks.append(metablock)
 
-    def show_keyvalue(key, value):
-        print(key, value)
+    metaindex_map = {}
+    def show_metakeyvalue(key, value):
+        if len(value) >0 :
+            value, _ = decode_block_handle(value)
+        metaindex_map[str(key, encoding="utf-8")] = value
+        print("\t{}:\t{}".format(key, maybe_encode_hex(value)))
 
-    metablock.Scan(show_keyvalue)
+    print("===== metaindex detail ====")
+    metablock.Scan(show_metakeyvalue)
+    print()
+
+    if metaindex_map.get(kPropertiesBlock):
+        print("===== table properties =====")    
+        properties_bh = metaindex_map[kPropertiesBlock]
+        properties_block = sst.read_datablock(properties_bh)
+        properties_block.Scan(show_keyvalue)
+        print() 
 
     # index block，针对 data block 的元数据索引
     index = sst.read_indexblock()
@@ -61,12 +77,15 @@ def main(options):
 
         def get_user_key_value(ikey, value):
             ukey, seq, kt = parse_internal_key(ikey)
-            kv_rows.append([ukey, seq, kt, len(value)])
+            ukey = maybe_encode_hex(ukey)
+            uvalue = maybe_encode_hex(value)
+            kv_rows.append([ukey, seq, kt, uvalue])
 
         if options.show_detail > 0:
             datablock.Scan(get_user_key_value)
 
-        show_table(kv_header, kv_rows)
+        if len(kv_rows) > 0:
+            show_table(kv_header, kv_rows)
 
     block_header = None
     block_rows = []
@@ -76,15 +95,17 @@ def main(options):
         row = block.generate_row()
         block_rows.append(row)
 
+    print()
+    print("========= blocks tables =========")
     show_table(block_header, block_rows)
-
+    print()
 
 if __name__ == "__main__":
     usage = "usage: %prog [options] arg"
     parser = optparse.OptionParser(usage)
 
     # sst 文件路径
-    parser.add_option("-f", "--path", type=str, dest="path",
+    parser.add_option("-f", "--file", type=str, dest="path",
                       help="stt table file path")
 
     # 是否打印 key/value

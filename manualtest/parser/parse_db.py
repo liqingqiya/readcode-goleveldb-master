@@ -70,8 +70,8 @@ if __name__ == "__main__":
     parser = optparse.OptionParser(usage)
 
     # 互斥模式
-    parser.add_option("-f", "--path", type=str, dest="path",
-                      help="stt table file path")
+    parser.add_option("-f", "--file", type=str, dest="path",
+                      help="manifest file path")
 
     args = parser.parse_args()
     options = args[0]
