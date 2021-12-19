@@ -59,7 +59,7 @@ def main(options):
     print()
     print()
 
-    print("==== sst tables ====")
+    print("==== alive sst tables ====")
     show_table(sst_header, sst_alives_rows)
     print()
     print()

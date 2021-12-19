@@ -117,6 +117,8 @@ class SessionRecord:
         if self.data is not None:
             self.decode()
 
+        self.header()
+
     def __str__(self) -> str:
         s = "Session:\ncomparer:{}\njournal_num:{}\nprev_journal_num:{}\nnext_file_num:{}\nseq_num:{}\ncomp_ptrs:{}\nadded_tables:{}\ndelete_tables:{}".format(
             self.comparer, self.journal_num, self.prev_journal_num, self.next_file_num, self.seq_num, self.comp_ptrs, self.added_tables, self.delete_tables
@@ -125,7 +127,7 @@ class SessionRecord:
         return s
 
     def header(self):
-        header = {
+        self.table_headers = {
             "has_rec": "has_rec",
             "comparer": "comparer",
             "journal_num": "journal_num",
@@ -137,17 +139,16 @@ class SessionRecord:
             "delete_tables": "delete_tables",
 
             # rocksdb
-            "column_family_id": "column_family_id",
-            "column_family_name": "column_family_name",
-            "column_family_add": "column_family_add",
-            "column_family_del": "column_family_del",
+            "column_family_id": "cf_id",
+            "column_family_name": "cf_name",
+            "column_family_add": "cf_add",
+            "column_family_del": "cf_del",
         }
-        return list(header.keys())
+        return list(self.table_headers.values())
 
     def generate_row(self):
-        headers = self.header()
         row = []
-        for h in headers:
+        for h in self.table_headers:
             value = getattr(self, h)
             if isinstance(value, list):
                 value = "len:{}".format(len(value))
