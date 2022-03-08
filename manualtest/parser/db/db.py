@@ -17,7 +17,7 @@ middleChunkType = 3
 lastChunkType = 4
 
 # leveldb 标准
-recComparer = 1 
+recComparer = 1
 recJournalNum = 2
 recNextFileNum = 3
 recSeqNum = 4
@@ -27,7 +27,7 @@ recAddTable = 7
 recPrevJournalNum = 9
 
 # rocksdb 扩展
-kMinLogNumberToKeep = 10 
+kMinLogNumberToKeep = 10
 kNewFile2 = 100
 kNewFile3 = 102
 kNewFile4 = 103
@@ -35,7 +35,8 @@ kColumnFamily = 200
 kColumnFamilyAdd = 201
 kColumnFamilyDrop = 202
 kMaxColumnFamily = 203
-kInAtomicGroup=300
+kInAtomicGroup = 300
+
 
 class SStTableMeta:
     def __init__(self, level, num, size=None, imin=None, imax=None, imin_seq=None, imax_seq=None) -> None:
@@ -230,7 +231,7 @@ class SessionRecord:
 
             elif rec == kNewFile3:
                 raise Exception
-            elif rec== kNewFile4:
+            elif rec == kNewFile4:
                 raise Exception
             elif rec == kColumnFamily:
                 self.column_family_id = self.read_uvarint()
@@ -258,15 +259,19 @@ class JournalRecord:
         while True:
             while jr.i == jr.j:
                 if jr.last == True:
-                    return self.data
+                    return len(self.data)
                 self.err = jr.next_chunk()
                 if self.err is not None:
                     if self.err == EOFError:
-                        return self.data
+                        return len(self.data)
                     raise
 
             self.data = self.data + jr.buf[jr.i:jr.j]
-            return len(self.data)
+
+            if jr.last == True:
+                return len(self.data)
+
+            jr.Next()
 
 
 class Journal:
@@ -314,6 +319,8 @@ class Journal:
 
                 if chunk_type == fullChunkType or chunk_type == lastChunkType:
                     self.last = True
+                else:
+                    self.last = False
                 return
 
             if self.n < block_size and self.n > 0:

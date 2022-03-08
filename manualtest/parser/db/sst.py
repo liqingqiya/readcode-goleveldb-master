@@ -17,8 +17,8 @@ blockTrailerLen = 5
 footerLen = 48
 goleveldb_magic = b"\x57\xfb\x80\x8b\x24\x75\x47\xdb"
 
-# rocksdb 
-# 0x88e241b785f4cff7 little 
+# rocksdb
+# 0x88e241b785f4cff7 little
 rocksdb_magic = b'\xf7\xcf\xf4\x85\xb7A\xe2\x88'
 rocksdb_footerlen = 1+2*20+4+8
 
@@ -28,7 +28,7 @@ keyTypeDel = 0
 keyTypeVal = 1
 
 # metaindex block key
-# rocksdb 
+# rocksdb
 kPropertiesBlock = "rocksdb.properties"
 kCompressionDictBlock = "rocksdb.compression_dict"
 kRangeDelBlock = "rocksdb.range_del"
@@ -52,6 +52,7 @@ class InternalKey:
 
     def __str__(self) -> str:
         return "key:{}\nseq:{}\nkt:{}".format(self.ukey, self.seq, self.kt)
+
 
 class Footer:
     def __init__(self, data) -> None:
@@ -84,7 +85,7 @@ class Footer:
         else:
             print("magic is invalid")
             raise
-        
+
         # leveldb: metaindex(20) / index(20) / magic(8)
 
         pos = 0
@@ -102,6 +103,7 @@ class Footer:
         self.index_bh, n = decode_block_handle(raw_data[pos+n:])
         if n == 0:
             raise
+
 
 class Block:
 
@@ -256,7 +258,7 @@ class Sst:
             self.sst_type = "rocksdb"
         else:
             raise
-        
+
         if self.sst_type == "goleveldb":
             footer_buf = footer_buf[max_footer_len-footerLen:]
 
